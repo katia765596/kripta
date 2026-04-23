@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="kripta_10/kripta_10.vcxproj" Id="fafef811-4924-456b-a2f9-59dbcb3300dc" />
+</Solution>
