@@ -1,54 +1,51 @@
 #ifndef POLYNOMIAL_H
 #define POLYNOMIAL_H
-#include "big_int.h"
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
-class polynomial
+class polynomial//полиномы над полем gf(2) набор 64 битных слов, где каждый бит соотв коэф при соотв степени
 {
 public:
-    using coeff_type = big_int;
-    using container = std::vector<coeff_type>;
     polynomial();
-    explicit polynomial(
-        size_t degree,
-        const coeff_type& value = 0);
-    explicit polynomial(const container& coeffs);
+    explicit polynomial(uint64_t value);
+    explicit polynomial(const std::vector<uint64_t>& value);//констр из вектора 64битных слов
+    static polynomial from_binary(const std::string& value);//полином из строки двоичного вида
+    static polynomial one();
+    static polynomial x();
+    bool is_zero() const;
+    bool is_one() const;
     size_t degree() const;
-    const coeff_type& operator[](size_t i) const;//для чтения
-    coeff_type& operator[](size_t i);//возвр ссылку на коэф по индексу i, для записи
-    polynomial operator+(const polynomial& other) const;
-    polynomial operator-(const polynomial& other) const;
-    polynomial operator*(const polynomial& other) const;
-    polynomial operator*(const coeff_type& scalar) const;
-    polynomial mod(const coeff_type& mod) const;
-    polynomial center_lift(const coeff_type& mod) const;
-    polynomial mul_mod(
-        const polynomial& other,
-        const coeff_type& mod,
-        size_t N) const;
+    bool get_bit(size_t index) const;//возвр знач бита
+    void set_bit(size_t index, bool value);//устанавл бит на поз индекс в знач value
+    uint64_t to_uint64() const;//преобраз полином в 64битное целое
+    std::string to_binary() const;
+    polynomial add(const polynomial& other) const;
+    polynomial multiply(const polynomial& other) const;
+    polynomial mod(const polynomial& modulus) const;
+    polynomial multiply_mod(const polynomial& other, const polynomial& modulus) const;
+    polynomial inverse(const polynomial& modulus) const;
+    polynomial power_mod(uint64_t exponent, const polynomial& modulus) const;
+    polynomial gcd(const polynomial& other) const;
+    bool is_irreducible() const;//проверка на неприводимость
     bool operator==(const polynomial& other) const;
     bool operator!=(const polynomial& other) const;
-    polynomial inverse_mod(
-        const coeff_type& mod,
-        size_t N) const;
-    std::string to_string() const;
-    static polynomial random(
-        size_t degree,
-        const std::vector<coeff_type>& coeff_set);
-    void resize(
-        size_t N,
-        const coeff_type& fill = 0);
-    container get_coeffs() const
-    {
-        return coeffs_;
-    }
-    void set_coeffs(const container& coeffs)
-    {
-        coeffs_ = coeffs;
-        trim();
-    }
 private:
-    container coeffs_;
-    void trim();
+    std::vector<uint64_t> data;
+    void normalize();//удаляет старшие нулевые биты
+    void xor_shifted(const polynomial& other, size_t shift);
+    polynomial divide_remainder(const polynomial& divisor, polynomial& remainder) const;
+};
+class finite_field//представляет конечное поле gf(2^m)
+{
+public:
+    explicit finite_field(const polynomial& modulus);//неприводимый полином степени m сохраняет его как модуль
+    polynomial add(const polynomial& first, const polynomial& second) const;
+    polynomial multiply(const polynomial& first, const polynomial& second) const;
+    polynomial inverse(const polynomial& value) const;
+    polynomial power(const polynomial& value, uint64_t exponent) const;
+    const polynomial& get_modulus() const;//возвр конст ссылку на модуль поля
+private:
+    polynomial modulus;
 };
 #endif

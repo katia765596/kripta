@@ -1,341 +1,403 @@
 #include "polynomial.h"
 #include <algorithm>
-#include <sstream>
 #include <stdexcept>
-#include <utility>
-#include <vector>
-polynomial::polynomial() = default;
-polynomial::polynomial(size_t degree, const coeff_type& value): coeffs_(degree + 1, value)
-{trim();}
-polynomial::polynomial(const container& coeffs): coeffs_(coeffs)
-{trim();}
-void polynomial::trim()
+polynomial::polynomial()
 {
-    while (!coeffs_.empty() && coeffs_.back() == 0)
-    {coeffs_.pop_back();}
+}
+polynomial::polynomial(uint64_t value)
+{
+    if (value != 0)
+    {
+        data.push_back(value);
+    }
+}
+polynomial::polynomial(const std::vector<uint64_t>& value)
+    : data(value)
+{
+    normalize();
+}
+polynomial polynomial::from_binary(const std::string& value)
+{
+    polynomial result;
+    if (value.empty())
+    {
+        return result;
+    }
+    for (size_t i = 0; i < value.size(); ++i)
+    {
+        char current = value[value.size() - 1 - i];//посл симвл соотв младшему биту
+        if (current == '1')
+        {
+            result.set_bit(i, true);
+        }
+        else if (current != '0')
+        {
+            throw std::invalid_argument("invalid binary polynomial");
+        }
+    }
+    return result;
+}
+polynomial polynomial::one()
+{
+    return polynomial(1);
+}
+polynomial polynomial::x()
+{
+    return polynomial(2);//x^1 - бит 1 установлен, соотв знач 2
+}
+bool polynomial::is_zero() const
+{
+    return data.empty();
+}
+bool polynomial::is_one() const
+{
+    return data.size() == 1 && data[0] == 1;
 }
 size_t polynomial::degree() const
 {
-    if (coeffs_.empty()){return 0;}
-    size_t i = coeffs_.size();
-    while (i > 0 && coeffs_[i - 1] == 0){--i;}
-    return i == 0 ? 0 : i - 1;
+    if (data.empty())
+    {
+        return 0;
+    }
+    uint64_t value = data.back();//последнее слово в векторе, которое содержит старш бит полинома
+    size_t bits = 0;
+    while (value != 0)
+    {
+        value >>= 1;//цикл сдвигает битс вправо пока не станет нуль и подсчитывает кол-во бит в слове
+        ++bits;
+    }
+    return (data.size() - 1) * 64 + bits - 1;//к кол-ву бит в пред словах прибавить битс-1 (индекс последнего установленного бита в посл слове)
 }
-const big_int& polynomial::operator[](size_t i) const
-{return coeffs_.at(i);}//ат для границ возвр конст ссылку на коэф с индексом i
-big_int& polynomial::operator[](size_t i)
+bool polynomial::get_bit(size_t index) const
 {
-    if (i >= coeffs_.size())
-    {coeffs_.resize(i + 1, 0);}
-    return coeffs_[i];
+    size_t word = index / 64;
+    size_t bit = index % 64;
+    if (word >= data.size())
+    {
+        return false;
+    }
+    return ((data[word] >> bit) & 1ULL) != 0;//извл бит с помощью сдвига вправо и маски возвр тру если бит равен 1
 }
-polynomial polynomial::operator+(const polynomial& other) const
+void polynomial::set_bit(size_t index, bool value)
 {
-    const size_t size = std::max(coeffs_.size(), other.coeffs_.size());
-    container result(size, 0);
-    for (size_t i = 0; i < coeffs_.size(); ++i)
-    {result[i] += coeffs_[i];}
-    for (size_t i = 0; i < other.coeffs_.size(); ++i)
-    {result[i] += other.coeffs_[i];}
-    return polynomial(result);
+    size_t word = index / 64;
+    size_t bit = index % 64;
+    if (word >= data.size())
+    {
+        data.resize(word + 1, 0);
+    }
+    uint64_t mask = 1ULL << bit;
+    if (value)
+    {
+        data[word] |= mask;//установить бит
+    }
+    else
+    {
+        data[word] &= ~mask;//сбросить бит
+    }
+    normalize();
 }
-polynomial polynomial::operator-(const polynomial& other) const
+void polynomial::normalize()
 {
-    const size_t size = std::max(coeffs_.size(), other.coeffs_.size());
-    container result(size, 0);
-    for (size_t i = 0; i < coeffs_.size(); ++i)
+    while (!data.empty() && data.back() == 0)
     {
-        result[i] += coeffs_[i];
+        data.pop_back();
     }
-    for (size_t i = 0; i < other.coeffs_.size(); ++i)
-    {
-        result[i] -= other.coeffs_[i];//коэф второго полинома вычитаются из реза
-    }
-    return polynomial(result);
 }
-polynomial polynomial::operator*(const polynomial& other) const
+uint64_t polynomial::to_uint64() const
 {
-    if (coeffs_.empty() || other.coeffs_.empty())
+    if (data.size() > 1)
     {
-        return polynomial();
+        throw std::overflow_error("polynomial does not fit uint64");
     }
-    container result(
-        coeffs_.size() + other.coeffs_.size() - 1,
-        0);
-    for (size_t i = 0; i < coeffs_.size(); ++i)
-    {
-        for (size_t j = 0; j < other.coeffs_.size(); ++j)
-        {
-            result[i + j] +=
-                coeffs_[i] * other.coeffs_[j];
-        }
-    }
-    return polynomial(result);
+    return data.empty() ? 0 : data[0];
 }
-polynomial polynomial::operator*(const coeff_type& scalar) const
+std::string polynomial::to_binary() const
 {
-    if (scalar == 0 || coeffs_.empty())
+    if (is_zero())
     {
-        return polynomial();
+        return "0";
     }
-    container result(coeffs_.size());
-    for (size_t i = 0; i < coeffs_.size(); ++i)
+    std::string result;
+    size_t current_degree = degree();
+    for (size_t i = current_degree + 1; i > 0; --i)
     {
-        result[i] = coeffs_[i] * scalar;
+        result.push_back(get_bit(i - 1) ? '1' : '0');
     }
-    return polynomial(result);
-}
-polynomial polynomial::mod(const coeff_type& mod) const
-{
-    if (mod <= 0)
-    {
-        throw std::invalid_argument(
-            "polynomial::mod: invalid modulus");
-    }
-    container result(coeffs_.size());
-    for (size_t i = 0; i < coeffs_.size(); ++i)
-    {
-        result[i] = coeffs_[i] % mod;
-        if (result[i] < 0)
-        {
-            result[i] += mod;
-        }
-    }
-    return polynomial(result);
-}
-polynomial polynomial::center_lift(const coeff_type& mod) const
-{
-    container result(coeffs_.size());
-    for (size_t i = 0; i < coeffs_.size(); ++i)
-    {
-        result[i] = ::center_lift(coeffs_[i], mod);//для каждого коэф глобальная функция
-    }
-    return polynomial(result);
-}
-polynomial polynomial::mul_mod(
-    const polynomial& other,
-    const coeff_type& mod,
-    size_t N) const
-{
-    if (N == 0)
-    {
-        throw std::invalid_argument(
-            "mul_mod: N must be > 0");
-    }
-    if (mod <= 0)
-    {
-        throw std::invalid_argument(
-            "mul_mod: modulus must be positive");
-    }
-    container result(N, 0);//вектор коэф произведения
-    for (size_t i = 0; i < coeffs_.size(); ++i)
-    {
-        for (size_t j = 0; j < other.coeffs_.size(); ++j)
-        {
-            const size_t index = (i + j) % N;//индекс в рез полиноме
-            big_int term =
-                (coeffs_[i] * other.coeffs_[j]) % mod;
-            if (term < 0)
-            {
-                term += mod;
-            }
-            result[index] = (result[index] + term) % mod;//Добавляет term к текущему значению в result[index] и снова берёт по модулю mod.
-        }
-    }
-    return polynomial(result);
+    return result;
 }
 bool polynomial::operator==(const polynomial& other) const
 {
-    container a = coeffs_;
-    container b = other.coeffs_;
-    while (!a.empty() && a.back() == 0)
-    {
-        a.pop_back();
-    }
-    while (!b.empty() && b.back() == 0)
-    {
-        b.pop_back();
-    }
-    return a == b;
+    return data == other.data;
 }
 bool polynomial::operator!=(const polynomial& other) const
 {
     return !(*this == other);
 }
-std::string polynomial::to_string() const
+polynomial polynomial::add(const polynomial& other) const
 {
-    std::ostringstream stream;
-    if (coeffs_.empty())
+    size_t size = std::max(data.size(), other.data.size());
+    polynomial result;
+    result.data.resize(size, 0);
+    for (size_t i = 0; i < size; ++i)
     {
-        return "0";
+        uint64_t first = i < data.size() ? data[i] : 0;
+        uint64_t second = i < other.data.size() ? other.data[i] : 0;
+        result.data[i] = first ^ second;
     }
-    for (size_t i = 0; i < coeffs_.size(); ++i)
-    {
-        if (i > 0)
-        {
-            stream << " + ";
-        }
-        stream << coeffs_[i] << "x^" << i;
-    }
-    return stream.str();
+    result.normalize();
+    return result;
 }
-polynomial polynomial::random(
-    size_t degree,
-    const std::vector<coeff_type>& coeff_set)
-{
-    if (coeff_set.empty())
+void polynomial::xor_shifted(const polynomial& other, size_t shift)
+{//this ^= other * x^shift.
+    if (other.is_zero())
     {
-        throw std::invalid_argument("empty coeff set");
+        return;
     }
-    container coeffs(degree + 1);
-    for (size_t i = 0; i < coeffs.size(); ++i)
+    size_t word_shift = shift / 64;
+    size_t bit_shift = shift % 64;
+    size_t required_size = word_shift + other.data.size();//мин размер вектора для хранения рез
+    if (bit_shift != 0)
     {
-        const size_t index =
-            random_bigint(0, coeff_set.size() - 1)
-            .convert_to<size_t>();
+        ++required_size;
+    }
+    if (data.size() < required_size)
+    {
+        data.resize(required_size, 0);
+    }
+    for (size_t i = 0; i < other.data.size(); ++i)
+    {
+        data[word_shift + i] ^= other.data[i] << bit_shift;//для каждого i выполняем xor тек слова со знач офердата и сдвиг байтов внутри влево на бит_шифт бит
 
-        coeffs[i] = coeff_set[index];
+        if (bit_shift != 0)
+        {
+            data[word_shift + i + 1] ^= other.data[i] >> (64 - bit_shift);//часть битов выходящая за пределы 64-битного слова,перенесена в след слово (сдвиг с переносом)
+        }
     }
-    return polynomial(coeffs);//возвр полином созданный из вектора коэф
+    normalize();
 }
-void polynomial::resize(size_t N, const coeff_type& fill)
+polynomial polynomial::multiply(const polynomial& other) const
 {
-    coeffs_.resize(N, fill);
-}
-static std::pair<polynomial, polynomial> divmod_poly(//возвр частное остаток
-    const polynomial& a,
-    const polynomial& b,
-    const big_int& mod)
-{
-    if (b.get_coeffs().empty())
+    polynomial result;
+    if (is_zero() || other.is_zero())
     {
-        throw std::invalid_argument(
-            "Division by zero polynomial");
+        return result;
     }
-    polynomial A = a.mod(mod);
-    polynomial B = b.mod(mod);
-    if (A.get_coeffs().empty() || A.degree() < B.degree())
+    const polynomial* first = this;
+    const polynomial* second = &other;
+    if (first->degree() < second->degree())
     {
-        return { polynomial(), A };//частное 0 остаток А
+        std::swap(first, second);//полином с большей степенью -первый
+    }
+    for (size_t word = 0; word < second->data.size(); ++word)
+    {//внешний цикл по словам полинома секонд(меньшего)
+        uint64_t value = second->data[word];//тек слово
+        while (value != 0)
+        {
+            unsigned int bit = 0;
+            uint64_t temp = value;
+            while ((temp & 1ULL) == 0)//находим поз младшего установленного бита в value
+            {
+                temp >>= 1;//сдвигаем вправо пока мл бит не станет 1
+                ++bit;//кол-во сдвигов
+            }
+            result.xor_shifted(*first, word * 64 + bit);//соотв умн на x^(word*64 + bit)
+            value &= value - 1;//сбрасывает мл установл бит в 
+        }
+    }
+    return result;
+}
+polynomial polynomial::mod(const polynomial& modulus) const
+{
+    if (modulus.is_zero())
+    {
+        throw std::invalid_argument("zero modulus");
+    }
+    polynomial result = *this;
+    size_t modulus_degree = modulus.degree();
+    while (!result.is_zero() && result.degree() >= modulus_degree)
+    {
+        result.xor_shifted(modulus, result.degree() - modulus_degree);
+    }//хор резалт с модулем сдвинутым на разность степений, после хор степень резалт уменьшится, цикл повт пока не получим остаток
+    return result;
+}
+polynomial polynomial::multiply_mod(
+    const polynomial& other,
+    const polynomial& modulus
+) const
+{
+    return multiply(other).mod(modulus);
+}
+polynomial polynomial::power_mod(
+    uint64_t exponent,
+    const polynomial& modulus
+) const
+{
+    if (modulus.is_zero())
+    {
+        throw std::invalid_argument("zero modulus");
+    }
+    polynomial result = polynomial::one();
+    polynomial base = mod(modulus);
+    while (exponent != 0)
+    {
+        if (exponent & 1ULL)//мл бит 1
+        {
+            result = result.multiply_mod(base, modulus);
+        }
+        exponent >>= 1;
+        if (exponent != 0)
+        {
+            base = base.multiply_mod(base, modulus);
+        }
+    }
+    return result;
+}
+polynomial polynomial::gcd(const polynomial& other) const
+{
+    polynomial first = *this;
+    polynomial second = other;
+    while (!second.is_zero())
+    {
+        polynomial remainder = first.mod(second);
+        first = second;
+        second = remainder;
+    }
+    return first;
+}
+polynomial polynomial::divide_remainder(
+    const polynomial& divisor,
+    polynomial& remainder
+) const
+{
+    if (divisor.is_zero())
+    {
+        throw std::invalid_argument("division by zero polynomial");
     }
     polynomial quotient;
-    polynomial remainder = A;
-    const big_int inverse_leading =
-        mod_inverse(B.get_coeffs().back(), mod);//вычисляет обр элемент старшего коэф делителя B по модулю mod
-    while (!remainder.get_coeffs().empty() &&
-        remainder.degree() >= B.degree())//пока остаток не ноль и степень B не меньше степени делителя
+    remainder = *this;
+    size_t divisor_degree = divisor.degree();//степень делителя
+    while (!remainder.is_zero() && remainder.degree() >= divisor_degree)
     {
-        const size_t shift =
-            remainder.degree() - B.degree();//сдвиг разность степенией и делителя
-        big_int coefficient =
-            (remainder.get_coeffs().back() * inverse_leading) % mod;//вычисляет коэф частного: старший коэф остатка,умножить на обратный старшего коэф делителя по модулю
-        if (coefficient < 0)
-        {
-            coefficient += mod;
-        }
-        polynomial::container term_coeffs(shift + 1, 0);
-        term_coeffs[shift] = coefficient;
-        quotient =
-            (quotient + polynomial(term_coeffs)).mod(mod);//создвкт полином,добавляет к частному м по модулю
-        polynomial subtraction = B * coefficient;//умножает делитель В на коэф,затем вставляет шифт нулей в начало вектора коэф, чтобы сдвинуть полином на шифт степений вверх
-        polynomial::container subtraction_coeffs =
-            subtraction.get_coeffs();
-        subtraction_coeffs.insert(
-            subtraction_coeffs.begin(),
-            shift,
-            big_int(0));
-        subtraction.set_coeffs(subtraction_coeffs);
-        remainder = (remainder - subtraction).mod(mod);
+        size_t shift = remainder.degree() - divisor_degree;
+        quotient.set_bit(shift, true);//устанавливаем бит в чатсном на поз шифт
+        remainder.xor_shifted(divisor, shift);
     }
-    return { quotient, remainder };
+    return quotient;
 }
-polynomial polynomial::inverse_mod(//нахождение обратного в кольце
-    const coeff_type& mod,
-    size_t N) const
+polynomial polynomial::inverse(const polynomial& modulus) const
 {
-    if (mod <= 1)
+    if (is_zero())
     {
-        throw std::invalid_argument(
-            "inverse_mod: invalid modulus");
+        throw std::invalid_argument("zero polynomial has no inverse");
     }
-    if (N == 0)
+    if (modulus.is_zero())
     {
-        throw std::invalid_argument(
-            "inverse_mod: N must be > 0");
+        throw std::invalid_argument("zero modulus");
     }
-    std::vector<std::vector<big_int>> matrix(
-        N,
-        std::vector<big_int>(N + 1, 0));//Создаёт матрицу размера N x (N+1) для решения системы линейных уравнений методом Гаусса. Матрица будет использоваться для поиска обратного полинома: мы решаем систему a * x ≡ 1 (mod x^N - 1).
-    for (size_t row = 0; row < N; ++row)
+    polynomial r0 = modulus;
+    polynomial r1 = mod(modulus);
+    polynomial t0;
+    polynomial t1 = polynomial::one();
+    while (!r1.is_zero())
     {
-        for (size_t col = 0; col < N; ++col)
+        polynomial remainder;
+        polynomial quotient = r0.divide_remainder(r1, remainder);
+        polynomial next_t = t0.add(quotient.multiply(t1));
+        r0 = r1;
+        r1 = remainder;
+        t0 = t1;
+        t1 = next_t;
+    }
+    if (!r0.is_one())
+    {
+        throw std::runtime_error("inverse does not exist");
+    }
+    return t0.mod(modulus);
+}
+bool polynomial::is_irreducible() const//полином степени n неприводим, если он взаимно прост с (x^2^i)-x для всех i от 1 до n/2 или для всех простых делителей n
+{
+    if (is_zero() || is_one())
+    {
+        return false;
+    }
+    size_t n = degree();
+    if (n == 0)
+    {
+        return false;
+    }
+    std::vector<size_t> factors;
+    size_t value = n;
+    for (size_t p = 2; p * p <= value; ++p)
+    {
+        if (value % p == 0)
         {
-            const size_t index = (row + N - col) % N;//индекс коэф полинома а который соотв матричному элементу
-            if (index < coeffs_.size())
+            factors.push_back(p);
+            while (value % p == 0)
             {
-                matrix[row][col] = coeffs_[index] % mod;
-                if (matrix[row][col] < 0)
-                {
-                    matrix[row][col] += mod;
-                }
+                value /= p;
             }
         }
-        matrix[row][N] = (row == 0) ? 1 : 0;//в последний столб правая часть для первой строки 1(коэф при х^0 для остальных 0)
     }
-    size_t pivot_row = 0;//тек строка где ищем ведущий
-    for (size_t col = 0;
-        col < N && pivot_row < N;
-        ++col)
+    if (value > 1)
     {
-        size_t pivot = pivot_row;//начинаем поиск ведущ эл в тек столбце col начиная с тек строки
-        while (pivot < N && matrix[pivot][col] == 0)//идем вниз по столбцу пока не найдем строку где элемент не равен нулю
-        {
-            ++pivot;
-        }
-        if (pivot == N)
-        {
-            continue;
-        }
-        std::swap(matrix[pivot], matrix[pivot_row]);//Меняем местами строку с найденным ведущим элементом (pivot) и текущую строку (pivot_row), чтобы переместить её наверх.
-        const big_int inverse =
-            mod_inverse(matrix[pivot_row][col], mod);//вычисляем мультипл обрат для ведущ знач (чтоыб вед элемент равным 1)
-        for (size_t j = col; j <= N; ++j)
-        {
-            matrix[pivot_row][j] =
-                (matrix[pivot_row][j] * inverse) % mod;//делаем ведущий равным 1 приводим к единичной матрице
-            if (matrix[pivot_row][j] < 0)
-            {
-                matrix[pivot_row][j] += mod;
-            }
-        }
-        for (size_t row = 0; row < N; ++row)
-        {
-            if (row == pivot_row || matrix[row][col] == 0)
-            {
-                continue;
-            }
-            const big_int factor = matrix[row][col];//вычисляем коэф и вычитаем из строки ведущую умноженную на фактор, чтобы обнулить элемент в стобце col  
-            for (size_t j = col; j <= N; ++j)
-            {
-                matrix[row][j] =
-                    (matrix[row][j] -
-                        factor * matrix[pivot_row][j]) % mod;
-                if (matrix[row][j] < 0)
-                {
-                    matrix[row][j] += mod;
-                }
-            }
-        }
-        ++pivot_row;
+        factors.push_back(value);
     }
-    if (pivot_row < N)//не удалось найти ведущий обратного не сущ
+    polynomial base = polynomial::x();
+    for (size_t q : factors)
     {
-        throw std::runtime_error("Polynomial not invertible");
+        size_t count = n / q;
+        polynomial current = base;
+        for (size_t i = 0; i < count; ++i)
+        {//х послед возводится в квадрат каунт раз
+            current = current.multiply_mod(current, *this);//х возводится в квадрат умн на себя по модулю f, x^(2^count) mod f 
+        }
+        if (!current.add(base).gcd(*this).is_one())//x^(2^(n/q)) + x затем нод если не равен 1 то полином приводоим
+        {
+            return false;
+        }
     }
-    container result(N, 0);//содержит коэф обрат полинома
-    for (size_t i = 0; i < N; ++i)
+    polynomial current = base;//вторая ч проверки вычисление x^(2^n) mod f
+    for (size_t i = 0; i < n; ++i)
     {
-        result[i] = matrix[i][N];//извлекаем послед столбец матрицы, после приведения последний содержит решение, т.е коэф иск полинома
+        current = current.multiply_mod(current, *this);
     }
-    return polynomial(result);
+    return current == base;//x^(2^n) ≡ x (mod f)
+}
+finite_field::finite_field(const polynomial& modulus_value)
+    : modulus(modulus_value)
+{
+    if (modulus.is_zero() || !modulus.is_irreducible())
+    {
+        throw std::invalid_argument("modulus must be irreducible");
+    }
+}
+polynomial finite_field::add(
+    const polynomial& first,
+    const polynomial& second
+) const
+{
+    return first.add(second);
+}
+polynomial finite_field::multiply(
+    const polynomial& first,
+    const polynomial& second
+) const
+{
+    return first.multiply_mod(second, modulus);
+}
+polynomial finite_field::inverse(const polynomial& value) const
+{
+    return value.inverse(modulus);
+}
+polynomial finite_field::power(
+    const polynomial& value,
+    uint64_t exponent
+) const
+{
+    return value.power_mod(exponent, modulus);
+}
+const polynomial& finite_field::get_modulus() const
+{
+    return modulus;
 }
