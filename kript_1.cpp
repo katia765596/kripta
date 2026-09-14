@@ -13,37 +13,37 @@ public:
         bit_order order,
         index_base base
     ) {
-        size_t num_bits = input.size() * 8;//кол-во бит
+        size_t num_bits = input.size() * 8;
         if (permutation.size() != num_bits) {
             throw std::invalid_argument("permutation size mismatch");
         }
         std::vector<uint8_t> output(input.size(), 0);
-        for (size_t pos = 0; pos < num_bits; ++pos) {//pos-номер поз вых бита
-            int raw = permutation[pos];//вых бит с номером pos берется из вход бита с таким-то номером
+        for (size_t pos = 0; pos < num_bits; ++pos) {
+            int raw = permutation[pos];
             if (base == index_base::one) {
-                raw -= 1;//индексы в правиле на 1 больше чем рил номера
+                raw -= 1;
             }
             if (raw < 0 || static_cast<size_t>(raw) >= num_bits) {
                 throw std::out_of_range("index out of range");
             }
-            size_t src = static_cast<size_t>(raw);//номер бита во вход массиве но в нумер которая в правиле + база
+            size_t src = static_cast<size_t>(raw);
             if (order == bit_order::msb_first) {
                 size_t byte = src / 8;
                 size_t bit = src % 8;
-                src = byte * 8 + (7 - bit);//пересчитывает физ номер
+                src = byte * 8 + (7 - bit);
             }
-            uint8_t bit_val = (input[src / 8] >> (src % 8)) & 1;//сдвиг байта вправо на нужное число поз, чтобы нужный бит оказался на месте младшего и обнуляем все кроме младешго
-            size_t dst = pos;//номер вых бита + преобр в физ номер
+            uint8_t bit_val = (input[src / 8] >> (src % 8)) & 1;
+            size_t dst = pos;
             if (order == bit_order::msb_first) {
                 size_t byte = dst / 8;
                 size_t bit = dst % 8;
                 dst = byte * 8 + (7 - bit);
-            }//запись бита в вых массив
+            }
             if (bit_val) {
-                output[dst / 8] |= (1 << (dst % 8));//маска с 1 на нужной позиции + побит или устанавливает этот бит в 1
+                output[dst / 8] |= (1 << (dst % 8));
             }
             else {
-                output[dst / 8] &= ~(1 << (dst % 8));//инверт маску (везде 1 кроме нужной там 0) и побит и обнуляет только указаггый бит
+                output[dst / 8] &= ~(1 << (dst % 8));
             }
         }
         return output;
@@ -75,14 +75,13 @@ static void test_reverse_msb() {
 }
 static void test_base_one() {
     std::vector<uint8_t> in = { 0b00000001 };
-    std::vector<int> p(8);
-    for (int i = 0; i < 8; ++i) p[i] = i + 1;
+    std::vector<int> p = { 1 };
     auto out = bit_permutation::permute(in, p, bit_order::lsb_first, index_base::one);
     assert(out.size() == 1);
     assert(out[0] == 0b00000001);
 }
 static void test_wrong_size() {
-    std::vector<uint8_t> in = { 0xaa };
+    std::vector<uint8_t> in = { 0xAA };
     std::vector<int> p = { 0, 1 };
     bool ok = false;
     try {
@@ -95,9 +94,7 @@ static void test_wrong_size() {
 }
 static void test_out_of_range() {
     std::vector<uint8_t> in = { 0x00 };
-    std::vector<int> p(8);
-    for (int i = 0; i < 8; ++i) p[i] = 0;
-    p[0] = 8;
+    std::vector<int> p = { 8 };
     bool ok = false;
     try {
         bit_permutation::permute(in, p, bit_order::lsb_first, index_base::zero);
@@ -136,6 +133,6 @@ int main() {
     test_out_of_range();
     test_two_bytes_msb();
     demo();
-    std::cout << "all tests passed" << std::endl;
+    std::cout << "All tests passed." << std::endl;
     return 0;
 }
